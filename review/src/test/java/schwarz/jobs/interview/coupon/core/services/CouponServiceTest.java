@@ -2,13 +2,12 @@ package schwarz.jobs.interview.coupon.core.services;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -16,15 +15,16 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.springframework.test.context.junit.jupiter.SpringExtension;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import schwarz.jobs.interview.coupon.core.domain.Coupon;
 import schwarz.jobs.interview.coupon.core.repository.CouponRepository;
 import schwarz.jobs.interview.coupon.core.services.model.Basket;
+import schwarz.jobs.interview.coupon.exception.InvalidBasketException;
+import schwarz.jobs.interview.coupon.mapper.CouponMapper;
 import schwarz.jobs.interview.coupon.web.dto.CouponDTO;
-import schwarz.jobs.interview.coupon.web.dto.CouponRequestDTO;
 
-@ExtendWith(SpringExtension.class)
+@ExtendWith(MockitoExtension.class)
 public class CouponServiceTest {
 
     @InjectMocks
@@ -32,6 +32,8 @@ public class CouponServiceTest {
 
     @Mock
     private CouponRepository couponRepository;
+    @Mock
+    private CouponMapper couponMapper;
 
     @Test
     public void createCoupon() {
@@ -40,10 +42,17 @@ public class CouponServiceTest {
             .discount(BigDecimal.TEN)
             .minBasketValue(BigDecimal.valueOf(50))
             .build();
-
+        Coupon entity = Coupon.builder()
+                .code("12345")
+                .discount(BigDecimal.TEN)
+                .minBasketValue(BigDecimal.valueOf(50))
+                .build();
+        when(couponMapper.toEntity(dto)).thenReturn(entity);
+        when(couponRepository.save(any(Coupon.class))).thenReturn(entity);
         couponService.createCoupon(dto);
 
         verify(couponRepository, times(1)).save(any());
+        verify(couponMapper, times(1)).toEntity(dto);
     }
 
     @Test
@@ -59,23 +68,19 @@ public class CouponServiceTest {
             .minBasketValue(BigDecimal.valueOf(50))
             .build()));
 
-        Optional<Basket> optionalBasket = couponService.apply(firstBasket, "1111");
+        Basket basket = couponService.apply(firstBasket, "1111");
 
-        assertThat(optionalBasket).hasValueSatisfying(b -> {
-            assertThat(b.getAppliedDiscount()).isEqualTo(BigDecimal.TEN);
-            assertThat(b.isApplicationSuccessful()).isTrue();
-        });
+        assertThat(basket.getAppliedDiscount()).isEqualTo(BigDecimal.TEN);
+        assertThat(basket.isApplicationSuccessful()).isTrue();
 
         final Basket secondBasket = Basket.builder()
             .value(BigDecimal.valueOf(0))
             .build();
 
-        optionalBasket = couponService.apply(secondBasket, "1111");
 
-        assertThat(optionalBasket).hasValueSatisfying(b -> {
-            assertThat(b).isEqualTo(secondBasket);
-            assertThat(b.isApplicationSuccessful()).isFalse();
-        });
+        basket = couponService.apply(secondBasket, "1111");
+        assertThat(basket).isEqualTo(secondBasket);
+        assertThat(basket.isApplicationSuccessful()).isFalse();
 
         final Basket thirdBasket = Basket.builder()
             .value(BigDecimal.valueOf(-1))
@@ -83,33 +88,28 @@ public class CouponServiceTest {
 
         assertThatThrownBy(() -> {
             couponService.apply(thirdBasket, "1111");
-        }).isInstanceOf(RuntimeException.class)
-            .hasMessage("Can't apply negative discounts");
+        }).isInstanceOf(InvalidBasketException.class)
+            .hasMessage("Invalid Basket value: -1. Basket value cannot be negative");
     }
 
     @Test
     public void should_test_get_Coupons() {
-
-        CouponRequestDTO dto = CouponRequestDTO.builder()
-            .codes(Arrays.asList("1111", "1234"))
-            .build();
-
-        when(couponRepository.findByCode(any()))
-            .thenReturn(Optional.of(Coupon.builder()
+        CouponDTO firstCoupon = CouponDTO.builder()
                 .code("1111")
                 .discount(BigDecimal.TEN)
                 .minBasketValue(BigDecimal.valueOf(50))
-                .build()))
-            .thenReturn(Optional.of(Coupon.builder()
+                .build();
+        CouponDTO secondCoupon = CouponDTO.builder()
                 .code("1234")
                 .discount(BigDecimal.TEN)
                 .minBasketValue(BigDecimal.valueOf(50))
-                .build()));
+                .build();
 
-        List<Coupon> returnedCoupons = couponService.getCoupons(dto);
+        when(couponRepository.findAllCouponDTOsByCodesIn(anyList()))
+            .thenReturn(List.of(firstCoupon, secondCoupon));
 
-        assertThat(returnedCoupons.get(0).getCode()).isEqualTo("1111");
+        List<CouponDTO> returnedCoupons = couponService.getCoupons(List.of("1111", "1234"));
 
-        assertThat(returnedCoupons.get(1).getCode()).isEqualTo("1234");
+        assertThat(returnedCoupons).containsAll(List.of(firstCoupon, secondCoupon));
     }
 }

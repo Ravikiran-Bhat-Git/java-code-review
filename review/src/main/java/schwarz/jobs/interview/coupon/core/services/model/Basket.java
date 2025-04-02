@@ -24,7 +24,7 @@ public class Basket {
 
     public void applyDiscount(final BigDecimal discount) {
         this.applicationSuccessful = false;
-        this.appliedDiscount = null;
+        this.appliedDiscount = BigDecimal.ZERO;
 
         if (discount == null || discount.compareTo(BigDecimal.ZERO) < 0) {
             return;
